@@ -19,7 +19,7 @@ export default defineConfig({
     css: false,
     clearMocks: true,
     mockReset: true,
-    restoreMocks: false, // true,
+    restoreMocks: false,
     reporters: 'default',
     coverage: {
       provider: 'v8',
