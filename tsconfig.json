@@ -7,8 +7,8 @@
     "moduleResolution": "node",
 
     /* Language and Environment */
-    "target": "ES2018",
-    "lib": ["ES2018", "DOM", "DOM.Iterable"],
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "useDefineForClassFields": true,
 
     /* Emit */

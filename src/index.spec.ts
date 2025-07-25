@@ -17,46 +17,29 @@ describe('idb', () => {
     deleteDatabase();
   });
 
-  test('deleteDatabase', () => {});
+  test('initDatabase. Don`t init', async () => {
+    expect(() => idb.get('key')).toThrowError(
+      new Error(
+        '[IndexedDB]. The service has not been initialized. Run initDatabase(<DBName>, <StoreName>)',
+      ),
+    );
+  });
 
-  test('initDatabase', async () => {
-    try {
-      await idb.get('key');
-    } catch (err) {
-      expect(err).toEqual(
-        new Error(
-          '[IndexedDB]. The service has not been initialized. Run initDatabase(<DBName>, <StoreName>)',
-        ),
-      );
-    }
+  test('initDatabase. Don`t db name', async () => {
+    const errorMessage = '[IndexedDB]. The service has not been initialized. Set name';
 
-    try {
-      await initDatabase('', '');
+    await expect(() => initDatabase('', '')).rejects.toThrowError(errorMessage);
+    await expect(() => initDatabase('any-db', '')).rejects.toThrowError(errorMessage);
+  });
 
-      await idb.get('key');
-    } catch (err) {
-      expect(err).toEqual(new Error('[IndexedDB]. The service has not been initialized. Set name'));
-    }
+  test('initDatabase. Version error', async () => {
+    await expect(initDatabase('any-db', 'any-store', 2)).resolves.toBeUndefined();
 
-    try {
-      await initDatabase('any-db', '');
+    await expect(idb.get('key')).resolves.toBeUndefined();
 
-      await idb.get('key');
-    } catch (err) {
-      expect(err).toEqual(new Error('[IndexedDB]. The service has not been initialized. Set name'));
-    }
-
-    await initDatabase('any-db', 'any-store', 2);
-
-    const value = await idb.get('key');
-
-    expect(value).toBeUndefined();
-
-    try {
-      await initDatabase('any-db', 'any-store', 1);
-    } catch (err) {
-      expect(err).toEqual(new Error('[IndexedDB]. VersionError'));
-    }
+    await expect(initDatabase('any-db', 'any-store', 1)).rejects.toThrowError(
+      '[IndexedDB]. An attempt was made to open a database using a lower version than the existing version.',
+    );
   });
 
   test('get', async () => {

@@ -4,7 +4,7 @@ let DB: IDBDatabase;
 const objectStoreRequest = (request: IDBRequest | IDBOpenDBRequest): Promise<any> =>
   new Promise((resolve, reject): void => {
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(`[IndexedDB]. ${request.error}`);
+    request.onerror = () => reject(new Error(`[IndexedDB]. ${request.error?.message}`));
   });
 
 const transactionRequest = (request: IDBTransaction): Promise<undefined> =>
@@ -41,7 +41,7 @@ export const initDatabase: Init = async (
   try {
     DB = await objectStoreRequest(DBOpenRequest);
   } catch (error: any) {
-    throw new Error(error);
+    throw new Error(error?.message);
   }
 };
 
@@ -77,11 +77,12 @@ const deepClone = (sourceObject: any): any => {
 
   const clone: any[] | Record<string, any> = Array.isArray(sourceObject)
     ? [].concat(<[]>sourceObject)
-    : Object.assign({}, <{}>sourceObject);
+    : { ...(<{}>sourceObject) };
 
   Object.keys(clone).forEach((key: string | number): void => {
-    const value = sourceObject[key];
+    const value: any = sourceObject[key];
 
+    // @ts-ignore
     clone[key] = typeof value === 'object' ? deepClone(value) : value;
   });
 
@@ -266,10 +267,10 @@ export const idb: Readonly<IDBMethods> = Object.freeze({
       objectStoreName,
     );
 
-    const entries: Record<string, unknown> = {};
+    const entries: Record<string, any> = {};
 
     const keys: string[] = await objectStoreRequest(store.getAllKeys());
-    const values: unknown[] = await objectStoreRequest(store.getAll());
+    const values: any[] = await objectStoreRequest(store.getAll());
 
     keys.forEach((key: string, index: number): void => {
       entries[key] = values.at(index);
