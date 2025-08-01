@@ -25,7 +25,7 @@
   "scripts": {
     "unit": "vitest run --reporter verbose",
     "unit:dev": "vitest --logHeapUsage --watch --changed",
-    "build": "swc src/index.ts -d dist && tsc --declaration --emitDeclarationOnly && git add .",
+    "build": "swc src/index.ts -o dist/index.js && tsc --declaration --emitDeclarationOnly && git add .",
     "deploy": "git push && git push --tags && npm publish",
     "patch": "npm run build && npm version patch --force -m 'Upgrade to %s' && npm run deploy",
     "minor": "npm run build && npm version minor --force -m 'Upgrade to %s' && npm run deploy",
