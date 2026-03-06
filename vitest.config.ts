@@ -6,11 +6,12 @@ const metaURL: string = import.meta.url;
 
 export default defineConfig({
   test: {
-    environment: 'happy-dom',
-    include: ['**/src/**/*.spec.{js,ts}'],
     root: fileURLToPath(new URL('./', metaURL)),
-    cache: false,
+    dir: './src',
+    include: ['*.spec.{js,ts}'],
     setupFiles: ['fake-indexeddb/auto'],
+    environment: 'happy-dom',
+    cache: false,
     isolate: true,
     passWithNoTests: true,
     bail: 1,
@@ -24,14 +25,11 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       enabled: true,
-      include: ['**/src/**'],
-      exclude: ['**/**/*.d.ts'],
       clean: true,
       cleanOnRerun: true,
       skipFull: false,
       reportOnFailure: false,
       reportsDirectory: '__coverage__',
-      all: true,
       reporter: ['text'],
       thresholds: {
         perFile: false,
