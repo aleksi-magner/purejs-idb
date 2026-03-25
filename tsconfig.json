@@ -2,9 +2,10 @@
   "files": ["src/index.ts"],
   "compilerOptions": {
     /* Modules */
-    "rootDir": "src",
-    "module": "ESNext",
-    "moduleResolution": "node",
+    "rootDir": "./src",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "types": ["node"],
 
     /* Language and Environment */
     "target": "ES2022",

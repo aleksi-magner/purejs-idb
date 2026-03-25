@@ -14,21 +14,32 @@ yarn add purejs-idb
 
 ## Использование
 
-### Инициализация. Задаём имя хранилища и при необходимости версию
+### Инициализация. Задаём имя базы и, при необходимости, хранилища
 
 ```javascript
-import { initDatabase } from 'purejs-idb';
+import { setDBName } from 'purejs-idb';
 
-await initDatabase('any@database.name', 'any-store-name', 42);
+setDBName('database.name');
 
-// или
+// ...
 
-initDatabase('any@database.name', 'any-store-name', 42).then(() => {
-  app.mount('#app');
-});
+await idb.set({ key: 'value' }, 'any-store-name');
 ```
 
-### Закрытие базы и удаление инстанса
+или
+
+```javascript
+import { setDBName, setDBStoreName } from 'purejs-idb';
+
+setDBName('database.name');
+setDBStoreName('any-store-name');
+
+// ...
+
+await idb.set({ key: 'value' });
+```
+
+### Закрытие базы и удаление базы
 
 ```javascript
 import { deleteDatabase } from 'purejs-idb';
@@ -36,13 +47,12 @@ import { deleteDatabase } from 'purejs-idb';
 deleteDatabase();
 ```
 
-### Получение одного или нескольких значений по ключам
+### Удаление хранилища
 
 ```javascript
-import { idb } from 'purejs-idb';
+import { removeDBStore } from 'purejs-idb';
 
-const token = await idb.get('token'); // value
-const anyValues = await idb.get(['token', 'user', 'phone']); // [value1, value2, value3]
+removeDBStore('any-store-name');
 ```
 
 ### Добавление одного или нескольких значений по ключам
@@ -55,6 +65,18 @@ await idb.set({
   user: { id: 42 },
   phone: 79991234567,
 });
+
+await idb.set({ key: 'value' }, 'store-name');
+```
+
+### Получение одного или нескольких значений по ключам
+
+```javascript
+import { idb } from 'purejs-idb';
+
+const token = await idb.get('token'); // value
+const token2 = await idb.get('token', 'store-name'); // value2
+const anyValues = await idb.get(['token', 'user', 'phone']); // [value1, value2, value3]
 ```
 
 ### Обновление значения по ключу
@@ -65,6 +87,7 @@ import { idb } from 'purejs-idb';
 const callback = value => (value || 0) + 1;
 
 await idb.update('number', callback);
+await idb.update('number', callback, 'store-name');
 ```
 
 ### Удаление одного или нескольких ключей
@@ -73,6 +96,7 @@ await idb.update('number', callback);
 import { idb } from 'purejs-idb';
 
 await idb.delete('token');
+await idb.delete('token', 'store-name');
 await idb.delete(['token', 'user', 'phone']);
 ```
 
@@ -82,22 +106,7 @@ await idb.delete(['token', 'user', 'phone']);
 import { idb } from 'purejs-idb';
 
 await idb.clear();
-```
-
-### Получение списка всех ключей
-
-```javascript
-import { idb } from 'purejs-idb';
-
-const allKeys = await idb.keys(); // [key1, key2, key3]
-```
-
-### Получение списка всех значений
-
-```javascript
-import { idb } from 'purejs-idb';
-
-const allValues = await idb.values(); // [value1, value2, value3]
+await idb.clear('store-name');
 ```
 
 ### Получение объекта со всеми ключами и значениями
@@ -106,6 +115,7 @@ const allValues = await idb.values(); // [value1, value2, value3]
 import { idb } from 'purejs-idb';
 
 const entries = await idb.entries();
+const entries = await idb.entries('store-name');
 
 // {
 //   key1: 'value1',

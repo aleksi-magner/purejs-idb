@@ -1,165 +1,182 @@
-import { afterEach, describe, test, expect } from 'vitest';
+import { vi, afterEach, describe, test, expect } from 'vitest';
+import { IDBFactory } from 'fake-indexeddb';
 
-import { initDatabase, idb, deleteDatabase } from './index';
+import { setDBName, setDBStoreName, idb, removeDBStore, deleteDatabase } from './index';
 
-type SourceObject = {
-  foo: string;
-  obj: { a: number; b: number };
-  array: [{ id: number; text: number }, string];
-  any: undefined;
-  Null: null;
-  number: number;
-  date: Date;
-};
+const errorPrefix = '[IndexedDB]';
 
 describe('idb', () => {
   afterEach(() => {
+    indexedDB = new IDBFactory();
+
     deleteDatabase();
+    setDBName('');
+    setDBStoreName('');
   });
 
-  test('initDatabase. Don`t init', async () => {
-    expect(() => idb.get('key')).toThrowError(
-      new Error(
-        '[IndexedDB]. The service has not been initialized. Run initDatabase(<DBName>, <StoreName>)',
-      ),
-    );
-  });
+  describe('Проверка инициализации', () => {
+    test('Отсутствует имя БД', async () => {
+      const errorMessage = `${errorPrefix}. Database name not set. Run setDBName(DBName)`;
 
-  test('initDatabase. Don`t db name', async () => {
-    const errorMessage = '[IndexedDB]. The service has not been initialized. Set name';
-
-    await expect(() => initDatabase('', '')).rejects.toThrowError(errorMessage);
-    await expect(() => initDatabase('any-db', '')).rejects.toThrowError(errorMessage);
-  });
-
-  test('initDatabase. Version error', async () => {
-    await expect(initDatabase('any-db', 'any-store', 2)).resolves.toBeUndefined();
-
-    await expect(idb.get('key')).resolves.toBeUndefined();
-
-    await expect(initDatabase('any-db', 'any-store', 1)).rejects.toThrowError(
-      '[IndexedDB]. An attempt was made to open a database using a lower version than the existing version.',
-    );
-  });
-
-  test('get', async () => {
-    await initDatabase('any-db', 'any-store', 2);
-
-    await idb.set({
-      key1: 'string',
-      key2: [1, 2, 3],
-      key3: {
-        a: 'any',
-      },
+      await expect(idb.get('key')).rejects.toThrow(errorMessage);
     });
 
-    const key1 = await idb.get('key1');
+    test('При получении списка баз ошибка', async () => {
+      const errorMessage = 'Ошибка получении БД произошла ошибка';
 
-    expect(key1).toBe('string');
+      vi.stubGlobal('indexedDB', {
+        databases: () => Promise.reject(new Error(errorMessage)),
+      });
 
-    const manyKeys = await idb.get(['key3', 'key1']);
+      setDBName('some-db');
+      setDBStoreName('some-store');
 
-    expect(manyKeys).toEqual([{ a: 'any' }, 'string']);
+      await expect(idb.get('key')).rejects.toThrow(`${errorPrefix}. ${errorMessage}`);
+
+      vi.unstubAllGlobals();
+    });
+
+    test('При открытии базы ошибка', async () => {
+      const spyOpen = vi.spyOn(indexedDB, 'databases');
+
+      spyOpen
+        .mockImplementationOnce(() =>
+          Promise.resolve([
+            {
+              name: 'some-db',
+              version: 4,
+            },
+          ]),
+        )
+        // Меняем имя базы для сброса версии
+        .mockImplementationOnce(() => Promise.resolve([]))
+        // Занижаем версию базы для вывода ошибки
+        .mockImplementationOnce(() =>
+          Promise.resolve([
+            {
+              name: 'some-db',
+              version: 2,
+            },
+          ]),
+        );
+
+      setDBName('some-db');
+      setDBStoreName('some-store');
+
+      await expect(idb.get('key')).resolves.toBeUndefined();
+
+      setDBName('some-db2');
+
+      await expect(idb.get('key')).resolves.toBeUndefined();
+
+      setDBName('some-db');
+
+      const errorMessage =
+        'An attempt was made to open a database using a lower version than the existing version';
+
+      await expect(idb.get('key')).rejects.toThrow(`${errorPrefix}. ${errorMessage}`);
+
+      vi.restoreAllMocks();
+    });
+
+    test('Сброс имени базы', async () => {
+      setDBName('some-db');
+
+      await expect(idb.get('key', 'any-store')).resolves.toBeUndefined();
+
+      setDBName('');
+
+      const errorMessage = `${errorPrefix}. Database name not set. Run setDBName(DBName)`;
+
+      await expect(idb.get('key', 'any-store')).rejects.toThrow(errorMessage);
+    });
+
+    test('Инициализация успешна', async () => {
+      setDBName('some-db');
+
+      await expect(idb.get('key', 'any-store')).resolves.toBeUndefined();
+
+      setDBStoreName('some-store');
+
+      await expect(idb.get('key')).resolves.toBeUndefined();
+    });
+
+    test('Повторная установка имени базы', async () => {
+      setDBName('some-db');
+
+      // Для открытия базы
+      await expect(idb.get('key', 'any-store')).resolves.toBeUndefined();
+
+      setDBName('some-db');
+    });
   });
 
-  test('set', async () => {
-    await initDatabase('any-db', 'any-store', 2);
+  describe('Запись в хранилище', () => {
+    const errorMessage = `${errorPrefix}. SET. Wrong params type`;
 
-    try {
-      await idb.set({});
-    } catch (err) {
-      expect(err).toEqual(new Error('[IndexedDB]. SET. Wrong params type'));
-    }
+    test('Нет аргументов функции', async () => {
+      setDBName('some-db');
 
-    const empty = await idb.get('key');
+      await expect(idb.set(undefined)).rejects.toThrow(errorMessage);
+    });
 
-    expect(empty).toBeUndefined();
+    test('Аргумент функции не объект', async () => {
+      setDBName('some-db');
 
-    await idb.set({ key: 'any' });
+      await expect(idb.set('Key')).rejects.toThrow(errorMessage);
+    });
 
-    const value = await idb.get('key');
+    test('Аргумент функции пустой объект', async () => {
+      setDBName('some-db');
 
-    expect(value).toBe('any');
+      await expect(idb.set(null)).rejects.toThrow(errorMessage);
+      await expect(idb.set({})).rejects.toThrow(errorMessage);
+    });
 
-    const string: string = 'string value';
-    const number: number = 42;
-    const bool: boolean = true;
+    test('Корректная установка значения', async () => {
+      setDBName('some-db');
 
-    const sourceObject: SourceObject = {
-      foo: 'bar',
-      obj: {
-        a: 1,
-        b: 2,
-      },
-      array: [
+      await expect(idb.get('key', 'any-store')).resolves.toBeUndefined();
+
+      await idb.set(
         {
-          id: 1,
-          text: 42,
+          key: 'value',
         },
-        'string',
-      ],
-      any: undefined,
-      Null: null,
-      number: 0,
-      date: new Date('2023-03-20'),
+        'any-store',
+      );
+
+      await expect(idb.get('key', 'any-store')).resolves.toBe('value');
+
+      setDBStoreName('some-store');
+
+      await expect(idb.get('key')).resolves.toBeUndefined();
+
+      await idb.set({
+        key: 'value 2',
+      });
+
+      await expect(idb.get('key')).resolves.toBe('value 2');
+    });
+
+    type SourceObject = {
+      foo: string;
+      obj: { a: number; b: number };
+      array: [{ id: number; text: number }, string];
+      any: undefined;
+      Null: null;
+      number: number;
+      date: Date;
     };
 
-    const arr: [{ id: number; text: number }, string] = [
-      {
-        id: 1,
-        text: 42,
-      },
-      'string',
-    ];
+    test('Проверка на иммутабельность (неизменяемость)', async () => {
+      setDBName('some-db');
+      setDBStoreName('some-store');
 
-    await idb.set({
-      string,
-      number,
-      bool,
-      sourceObject,
-      arr,
-    });
+      const string: string = 'string value';
+      const number: number = 42;
+      const bool: boolean = true;
 
-    sourceObject.obj.a = 4;
-    sourceObject.array[0].id = 4;
-    sourceObject.date.setFullYear(3000);
-
-    arr[0].id = 7;
-
-    expect(sourceObject).toEqual({
-      foo: 'bar',
-      obj: {
-        a: 4,
-        b: 2,
-      },
-      array: [
-        {
-          id: 4,
-          text: 42,
-        },
-        'string',
-      ],
-      any: undefined,
-      Null: null,
-      number: 0,
-      date: new Date('3000-03-20'),
-    });
-
-    const storeValues = await idb.get([
-      'invalid key',
-      'string',
-      'number',
-      'bool',
-      'sourceObject',
-      'arr',
-    ]);
-
-    expect(storeValues).toEqual([
-      undefined,
-      'string value',
-      42,
-      true,
-      {
+      const sourceObject: SourceObject = {
         foo: 'bar',
         obj: {
           a: 1,
@@ -176,140 +193,743 @@ describe('idb', () => {
         Null: null,
         number: 0,
         date: new Date('2023-03-20'),
-      },
-      [
+      };
+
+      const arr: [{ id: number; text: number }, string] = [
         {
           id: 1,
           text: 42,
         },
         'string',
-      ],
-    ]);
-  });
+      ];
 
-  test('update', async () => {
-    await initDatabase('any-db', 'any-store', 2);
+      await idb.set({
+        string,
+        number,
+        bool,
+        sourceObject,
+        arr,
+      });
 
-    const empty = await idb.get('number');
+      sourceObject.obj.a = 4;
+      sourceObject.array[0].id = 4;
+      sourceObject.date.setFullYear(3000);
 
-    expect(empty).toBeUndefined();
+      arr[0].id = 7;
 
-    await idb.update('number', value => (value || 0) + 1);
-    await idb.update('number', value => (value || 0) + 1);
-    await idb.update('number', value => (value || 0) + 40);
+      // Проверяем что изменился исходник
+      expect(sourceObject).toEqual({
+        foo: 'bar',
+        obj: {
+          a: 4,
+          b: 2,
+        },
+        array: [
+          {
+            id: 4,
+            text: 42,
+          },
+          'string',
+        ],
+        any: undefined,
+        Null: null,
+        number: 0,
+        date: new Date('3000-03-20'),
+      });
 
-    const number = await idb.get('number');
+      const storeValues = await idb.get([
+        'invalid key',
+        'string',
+        'number',
+        'bool',
+        'sourceObject',
+        'arr',
+      ]);
 
-    expect(number).toBe(42);
-
-    await idb.update('number', value => ({ key: value }));
-
-    const object = await idb.get('number');
-
-    expect(object).toEqual({ key: 42 });
-
-    await idb.update('number', value => ({
-      ...value,
-      key2: 1,
-    }));
-
-    const newObject = await idb.get('number');
-
-    expect(newObject).toEqual({
-      key: 42,
-      key2: 1,
+      // Проверяем что в хранилище изначальное значение
+      expect(storeValues).toEqual([
+        undefined,
+        'string value',
+        42,
+        true,
+        {
+          foo: 'bar',
+          obj: {
+            a: 1,
+            b: 2,
+          },
+          array: [
+            {
+              id: 1,
+              text: 42,
+            },
+            'string',
+          ],
+          any: undefined,
+          Null: null,
+          number: 0,
+          date: new Date('2023-03-20'),
+        },
+        [
+          {
+            id: 1,
+            text: 42,
+          },
+          'string',
+        ],
+      ]);
     });
   });
 
-  test('delete', async () => {
-    await initDatabase('any-db', 'any-store');
+  describe('Чтение из хранилища', () => {
+    test('Нет значений в хранилище', async () => {
+      setDBName('some-db');
 
-    await idb.set({
-      1: 1,
-      2: 2,
-      3: 3,
+      await expect(idb.get('', 'any-store')).resolves.toBeUndefined();
     });
 
-    const allKeys = await idb.get(['1', '2', '3']);
+    test('Получение одного значения', async () => {
+      setDBName('some-db');
 
-    expect(allKeys).toEqual([1, 2, 3]);
+      await idb.set(
+        {
+          key: 'value',
+        },
+        'any-store',
+      );
 
-    await idb.delete('3');
+      const value = await idb.get('key', 'any-store');
 
-    const someKeys = await idb.get(['1', '2', '3']);
+      expect(value).toBe('value');
 
-    expect(someKeys).toEqual([1, 2, undefined]);
+      setDBStoreName('some-store');
 
-    await idb.delete(['1', '2', '3']);
+      await idb.set({
+        key: 'value 2',
+      });
 
-    const empty = await idb.get(['1', '2', '3']);
+      const value2 = await idb.get('key');
 
-    expect(empty).toEqual([undefined, undefined, undefined]);
+      expect(value2).toBe('value 2');
+
+      const value3 = await idb.get('key', 'some-store');
+
+      expect(value3).toBe('value 2');
+    });
+
+    test('Получение нескольких значений', async () => {
+      setDBName('some-db');
+
+      await idb.set(
+        {
+          key: 'value',
+          key2: [1, 2, 3],
+          key3: {
+            a: 'any',
+          },
+        },
+        'any-store',
+      );
+
+      const [value1, value2, value3] = await idb.get(['key', 'key2', 'key3'], 'any-store');
+
+      expect(value1).toBe('value');
+      expect(value2).toEqual([1, 2, 3]);
+      expect(value3).toEqual({ a: 'any' });
+
+      setDBStoreName('some-store');
+
+      await idb.set({
+        key: 'value 3',
+        key2: [4, 5, 6],
+        key3: {
+          b: 'some',
+        },
+      });
+
+      const [value4, value5, value6] = await idb.get(['key', 'key2', 'key3']);
+
+      expect(value4).toBe('value 3');
+      expect(value5).toEqual([4, 5, 6]);
+      expect(value6).toEqual({ b: 'some' });
+
+      const [value7, value8, value9] = await idb.get(['key', 'key2', 'key3'], 'some-store');
+
+      expect(value7).toBe('value 3');
+      expect(value8).toEqual([4, 5, 6]);
+      expect(value9).toEqual({ b: 'some' });
+    });
   });
 
-  test('clear', async () => {
-    await initDatabase('any-db', 'any-store', 2);
+  describe('Обновление значений в хранилище', () => {
+    test('Не передана функция обратного вызова', async () => {
+      setDBName('some-db');
 
-    await idb.set({
-      1: 1,
-      2: 2,
-      3: 3,
+      await idb.set(
+        {
+          key: 'value',
+        },
+        'any-store',
+      );
+
+      await expect(idb.get('key', 'any-store')).resolves.toBe('value');
+
+      await idb.update('key', null, 'any-store');
+
+      await expect(idb.get('key', 'any-store')).resolves.toBe('value');
+
+      setDBStoreName('some-store');
+
+      await idb.set({
+        key: 'value',
+      });
+
+      await expect(idb.get('key')).resolves.toBe('value');
+
+      await idb.update('key', null);
+
+      await expect(idb.get('key')).resolves.toBe('value');
     });
 
-    const allKeys = await idb.get(['1', '2', '3']);
+    test('Обновление числа', async () => {
+      setDBName('some-db');
 
-    expect(allKeys).toEqual([1, 2, 3]);
+      await expect(idb.get('number', 'any-store')).resolves.toBeUndefined();
 
-    await idb.clear();
+      await idb.update('number', (value = 0) => value + 1, 'any-store');
+      await idb.update('number', (value = 0) => value + 1, 'any-store');
+      await idb.update('number', (value = 0) => value + 40, 'any-store');
 
-    const empty = await idb.get(['1', '2', '3']);
+      setDBStoreName('some-store');
 
-    expect(empty).toEqual([undefined, undefined, undefined]);
+      await idb.update('number', (value = 0) => value + 1);
+      await idb.update('number', (value = 0) => value + 1);
+      await idb.update('number', (value = 0) => value + 40);
+      await idb.update('number', value => value / 6);
+
+      await expect(idb.get('number', 'any-store')).resolves.toBe(42);
+      await expect(idb.get('number')).resolves.toBe(7);
+    });
+
+    test('Обновление строки', async () => {
+      setDBName('some-db');
+
+      await expect(idb.get('string', 'any-store')).resolves.toBeUndefined();
+
+      await idb.update('string', (value = '') => value + 'a', 'any-store');
+      await idb.update('string', (value = '') => value + 'b', 'any-store');
+      await idb.update('string', (value = '') => value + 'c', 'any-store');
+
+      setDBStoreName('some-store');
+
+      await idb.update('string', (value = '') => value + 'c');
+      await idb.update('string', (value = '') => value + 'b');
+      await idb.update('string', (value = '') => value + 'a');
+
+      await expect(idb.get('string', 'any-store')).resolves.toBe('abc');
+      await expect(idb.get('string')).resolves.toBe('cba');
+    });
+
+    test('Обновление логического значения', async () => {
+      setDBName('some-db');
+
+      await expect(idb.get('bool', 'any-store')).resolves.toBeUndefined();
+
+      await idb.update('bool', value => !!value, 'any-store');
+      await idb.update('bool', value => !value, 'any-store');
+
+      setDBStoreName('some-store');
+
+      await idb.update('bool', value => !value);
+      await idb.update('bool', value => !!value);
+
+      await expect(idb.get('bool', 'any-store')).resolves.toBe(true);
+      await expect(idb.get('bool')).resolves.toBe(true);
+    });
+
+    test('Обновление объекта', async () => {
+      setDBName('some-db');
+
+      await expect(idb.get('arr', 'any-store')).resolves.toBeUndefined();
+      await expect(idb.get('obj', 'any-store')).resolves.toBeUndefined();
+
+      await idb.set(
+        {
+          arr: [1],
+          obj: { key: 42 },
+        },
+        'any-store',
+      );
+
+      await expect(idb.get('arr', 'any-store')).resolves.toEqual([1]);
+      await expect(idb.get('obj', 'any-store')).resolves.toEqual({ key: 42 });
+
+      const callbackArr = (value: any[]): any[] => {
+        const arr = value || [];
+
+        arr.push(arr.length + 1);
+
+        return arr;
+      };
+
+      const callbackObj = (value: Record<string, unknown>): Record<string, unknown> => ({
+        ...(value || {}),
+        count: ((value?.['count'] as number) || 0) + 1,
+      });
+
+      await idb.update('arr', callbackArr, 'any-store');
+      await idb.update('arr', callbackArr, 'any-store');
+
+      await idb.update('obj', callbackObj, 'any-store');
+      await idb.update('obj', callbackObj, 'any-store');
+
+      setDBStoreName('some-store');
+
+      await expect(idb.get('arr')).resolves.toBeUndefined();
+      await expect(idb.get('obj')).resolves.toBeUndefined();
+
+      await idb.update('arr', callbackArr);
+      await idb.update('arr', callbackArr);
+
+      await idb.update('obj', callbackObj);
+      await idb.update('obj', callbackObj);
+
+      await expect(idb.get('arr', 'any-store')).resolves.toEqual([1, 2, 3]);
+      await expect(idb.get('arr')).resolves.toEqual([1, 2]);
+
+      await expect(idb.get('obj', 'any-store')).resolves.toEqual({
+        key: 42,
+        count: 2,
+      });
+
+      await expect(idb.get('obj')).resolves.toEqual({
+        count: 2,
+      });
+    });
   });
 
-  test('keys', async () => {
-    await initDatabase('any-db', 'any-store', 2);
+  describe('Удаление из хранилища', () => {
+    test('Нет значений в хранилище', async () => {
+      setDBName('some-db');
 
-    await idb.set({
-      1: 1,
-      2: 2,
-      3: 3,
+      await expect(idb.get('key', 'any-store')).resolves.toBeUndefined();
+
+      await idb.delete('key', 'any-store');
+
+      await expect(idb.get('key', 'any-store')).resolves.toBeUndefined();
     });
 
-    const allKeys = await idb.keys();
+    test('Удаление одного значения', async () => {
+      setDBName('some-db');
 
-    expect(allKeys).toEqual(['1', '2', '3']);
+      await idb.set(
+        {
+          key: 'value',
+          key2: 'value 2',
+        },
+        'any-store',
+      );
+
+      const [value, value2] = await idb.get(['key', 'key2'], 'any-store');
+
+      expect(value).toBe('value');
+      expect(value2).toBe('value 2');
+
+      await idb.delete('key2', 'any-store');
+
+      const [value3, value4] = await idb.get(['key', 'key2'], 'any-store');
+
+      expect(value3).toBe('value');
+      expect(value4).toBeUndefined();
+
+      setDBStoreName('some-store');
+
+      await idb.set({
+        key: 'value 3',
+        key2: 'value 4',
+      });
+
+      const [value5, value6] = await idb.get(['key', 'key2']);
+
+      expect(value5).toBe('value 3');
+      expect(value6).toBe('value 4');
+
+      await idb.delete('key2');
+
+      const [value7, value8] = await idb.get(['key', 'key2']);
+
+      expect(value7).toBe('value 3');
+      expect(value8).toBeUndefined();
+    });
+
+    test('Удаление нескольких значений', async () => {
+      setDBName('some-db');
+
+      await idb.set(
+        {
+          key: 'value',
+          key2: 'value 2',
+          key3: [1, 2, 3],
+        },
+        'any-store',
+      );
+
+      const [value, value2, value3] = await idb.get(['key', 'key2', 'key3'], 'any-store');
+
+      expect(value).toBe('value');
+      expect(value2).toBe('value 2');
+      expect(value3).toEqual([1, 2, 3]);
+
+      await idb.delete(['key2', 'key'], 'any-store');
+
+      const [value4, value5, value6] = await idb.get(['key', 'key2', 'key3'], 'any-store');
+
+      expect(value4).toBeUndefined();
+      expect(value5).toBeUndefined();
+      expect(value6).toEqual([1, 2, 3]);
+
+      setDBStoreName('some-store');
+
+      await idb.set({
+        key: 'value',
+        key2: 'value 2',
+        key3: [1, 2, 3],
+      });
+
+      const [value7, value8, value9] = await idb.get(['key', 'key2', 'key3']);
+
+      expect(value7).toBe('value');
+      expect(value8).toBe('value 2');
+      expect(value9).toEqual([1, 2, 3]);
+
+      await idb.delete(['key2', 'key']);
+
+      const [value10, value11, value12] = await idb.get(['key', 'key2', 'key3']);
+
+      expect(value10).toBeUndefined();
+      expect(value11).toBeUndefined();
+      expect(value12).toEqual([1, 2, 3]);
+    });
   });
 
-  test('values', async () => {
-    await initDatabase('any-db', 'any-store');
+  describe('Получение из хранилища всех ключей и значений', () => {
+    test('Получение из пустого хранилища', async () => {
+      setDBName('some-db');
 
-    await idb.set({
-      1: 4,
-      2: 5,
-      3: 6,
+      await expect(idb.entries('any-store')).resolves.toEqual({});
+
+      setDBStoreName('some-store');
+
+      await expect(idb.entries()).resolves.toEqual({});
     });
 
-    const allValues = await idb.values();
+    test('Получение из хранилища с данными', async () => {
+      setDBName('some-db');
 
-    expect(allValues).toEqual([4, 5, 6]);
+      let entriesAnyStore = await idb.entries('any-store');
+
+      expect(Object.keys(entriesAnyStore)).toHaveLength(0);
+
+      await idb.set(
+        {
+          key: 'value',
+          key2: 'value 2',
+        },
+        'any-store',
+      );
+
+      entriesAnyStore = await idb.entries('any-store');
+
+      expect(Object.keys(entriesAnyStore)).toHaveLength(2);
+
+      expect(entriesAnyStore).toEqual({
+        key: 'value',
+        key2: 'value 2',
+      });
+
+      await idb.set(
+        {
+          key3: 'value 3',
+        },
+        'any-store',
+      );
+
+      entriesAnyStore = await idb.entries('any-store');
+
+      expect(Object.keys(entriesAnyStore)).toHaveLength(3);
+
+      expect(entriesAnyStore).toEqual({
+        key: 'value',
+        key2: 'value 2',
+        key3: 'value 3',
+      });
+
+      setDBStoreName('some-store');
+
+      let entriesSomeStore = await idb.entries();
+
+      expect(Object.keys(entriesSomeStore)).toHaveLength(0);
+
+      await idb.set({
+        key: 42,
+        key2: [1, 2, 3],
+      });
+
+      entriesSomeStore = await idb.entries();
+
+      expect(Object.keys(entriesSomeStore)).toHaveLength(2);
+
+      expect(entriesSomeStore).toEqual({
+        key: 42,
+        key2: [1, 2, 3],
+      });
+
+      await idb.set({
+        key3: { a: 'value' },
+      });
+
+      entriesSomeStore = await idb.entries();
+
+      expect(Object.keys(entriesSomeStore)).toHaveLength(3);
+
+      expect(entriesSomeStore).toEqual({
+        key: 42,
+        key2: [1, 2, 3],
+        key3: { a: 'value' },
+      });
+    });
+
+    test('Удаление нескольких значений', async () => {
+      setDBName('some-db');
+
+      await idb.set(
+        {
+          key: 'value',
+          key2: 'value 2',
+          key3: [1, 2, 3],
+        },
+        'any-store',
+      );
+
+      const [value, value2, value3] = await idb.get(['key', 'key2', 'key3'], 'any-store');
+
+      expect(value).toBe('value');
+      expect(value2).toBe('value 2');
+      expect(value3).toEqual([1, 2, 3]);
+
+      await idb.delete(['key2', 'key'], 'any-store');
+
+      const [value4, value5, value6] = await idb.get(['key', 'key2', 'key3'], 'any-store');
+
+      expect(value4).toBeUndefined();
+      expect(value5).toBeUndefined();
+      expect(value6).toEqual([1, 2, 3]);
+
+      setDBStoreName('some-store');
+
+      await idb.set({
+        key: 'value',
+        key2: 'value 2',
+        key3: [1, 2, 3],
+      });
+
+      const [value7, value8, value9] = await idb.get(['key', 'key2', 'key3']);
+
+      expect(value7).toBe('value');
+      expect(value8).toBe('value 2');
+      expect(value9).toEqual([1, 2, 3]);
+
+      await idb.delete(['key2', 'key']);
+
+      const [value10, value11, value12] = await idb.get(['key', 'key2', 'key3']);
+
+      expect(value10).toBeUndefined();
+      expect(value11).toBeUndefined();
+      expect(value12).toEqual([1, 2, 3]);
+    });
   });
 
-  test('entries', async () => {
-    await initDatabase('any-db', 'any-store');
+  describe('Очистка хранилища', () => {
+    test('Очистка пустого хранилища', async () => {
+      setDBName('some-db');
 
-    await idb.set({
-      1: 4,
-      2: 5,
-      3: 6,
+      const entriesAnyStoreBefore = await idb.entries('any-store');
+
+      expect(Object.keys(entriesAnyStoreBefore)).toHaveLength(0);
+
+      await expect(idb.clear('any-store')).resolves.toBeUndefined();
+
+      const entriesAnyStoreAfter = await idb.entries('any-store');
+
+      expect(Object.keys(entriesAnyStoreAfter)).toHaveLength(0);
+
+      setDBStoreName('some-store');
+
+      const entriesSomeStoreBefore = await idb.entries();
+
+      expect(Object.keys(entriesSomeStoreBefore)).toHaveLength(0);
+
+      await expect(idb.clear()).resolves.toBeUndefined();
+
+      const entriesSomeStoreAfter = await idb.entries();
+
+      expect(Object.keys(entriesSomeStoreAfter)).toHaveLength(0);
     });
 
-    const entries = await idb.entries();
+    test('Очистка хранилища с данными', async () => {
+      setDBName('some-db');
 
-    expect(entries).toEqual({
-      1: 4,
-      2: 5,
-      3: 6,
+      await idb.set(
+        {
+          key: 'value',
+          key2: 'value 2',
+        },
+        'any-store',
+      );
+
+      const entriesAnyStoreBefore = await idb.entries('any-store');
+
+      expect(Object.keys(entriesAnyStoreBefore)).toHaveLength(2);
+
+      await expect(idb.clear('any-store')).resolves.toBeUndefined();
+
+      const entriesAnyStoreAfter = await idb.entries('any-store');
+
+      expect(Object.keys(entriesAnyStoreAfter)).toHaveLength(0);
+
+      setDBStoreName('some-store');
+
+      await idb.set({
+        key: 'value 3',
+        key2: 'value 4',
+      });
+
+      const entriesSomeStoreBefore = await idb.entries();
+
+      expect(Object.keys(entriesSomeStoreBefore)).toHaveLength(2);
+
+      await expect(idb.clear()).resolves.toBeUndefined();
+
+      const entriesSomeStoreAfter = await idb.entries();
+
+      expect(Object.keys(entriesSomeStoreAfter)).toHaveLength(0);
+    });
+  });
+
+  describe('Удаление хранилища', () => {
+    test('Отсутствует имя хранилища', async () => {
+      const errorMessage = `${errorPrefix}. The required name argument was not passed`;
+
+      await expect(removeDBStore('')).rejects.toThrow(errorMessage);
+    });
+
+    test('Отсутствие нужного хранилища. Без объявления', async () => {
+      setDBName('some-db');
+
+      await removeDBStore('any-store');
+
+      await expect(idb.get('key', 'any-store')).resolves.toBeUndefined();
+    });
+
+    test('Отсутствие нужного хранилища. С объявлением удаляемого', async () => {
+      setDBName('some-db');
+      setDBStoreName('some-store');
+
+      await removeDBStore('some-store');
+
+      await expect(idb.get('key')).resolves.toBeUndefined();
+    });
+
+    test('Отсутствие нужного хранилища. С объявлением иного', async () => {
+      setDBName('some-db');
+      setDBStoreName('some-store');
+
+      await removeDBStore('any-store');
+
+      await expect(idb.get('key', 'any-store')).resolves.toBeUndefined();
+      await expect(idb.get('key')).resolves.toBeUndefined();
+    });
+
+    test('Наличие нужного хранилища. Без объявления', async () => {
+      setDBName('some-db');
+
+      await idb.set(
+        {
+          key: 'value',
+          key2: 'value 2',
+        },
+        'any-store',
+      );
+
+      await removeDBStore('any-store');
+
+      await expect(idb.get('key', 'any-store')).resolves.toBeUndefined();
+    });
+
+    test('Наличие нужного хранилища. С объявлением удаляемого', async () => {
+      setDBName('some-db');
+      setDBStoreName('some-store');
+
+      await idb.set({
+        key: 'value',
+        key2: 'value 2',
+      });
+
+      await removeDBStore('some-store');
+
+      await expect(idb.get('key')).resolves.toBeUndefined();
+    });
+
+    test('Наличие нужного хранилища. С объявлением иного', async () => {
+      setDBName('some-db');
+      setDBStoreName('some-store');
+
+      await idb.set(
+        {
+          key: 'value',
+          key2: 'value 2',
+        },
+        'any-store',
+      );
+
+      await removeDBStore('any-store');
+
+      await expect(idb.get('key')).resolves.toBeUndefined();
+      await expect(idb.get('key', 'any-store')).resolves.toBeUndefined();
+    });
+  });
+
+  describe('Удаление базы', () => {
+    test('Отсутствие открытой базы', () => {
+      vi.spyOn(indexedDB, 'deleteDatabase');
+
+      expect(global.indexedDB.deleteDatabase).toHaveBeenCalledTimes(0);
+
+      deleteDatabase();
+
+      expect(global.indexedDB.deleteDatabase).toHaveBeenCalledTimes(0);
+
+      vi.restoreAllMocks();
+    });
+
+    test('Удаление существующей базы', async () => {
+      vi.spyOn(indexedDB, 'deleteDatabase');
+
+      setDBName('some-db');
+
+      // Для открытия базы
+      await idb.set(
+        {
+          key: 'value',
+        },
+        'any-store',
+      );
+
+      deleteDatabase();
+
+      expect(global.indexedDB.deleteDatabase).toHaveBeenCalledTimes(1);
+
+      vi.restoreAllMocks();
     });
   });
 });
