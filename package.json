@@ -26,7 +26,7 @@
     "unit": "vitest run",
     "unit:dev": "vitest --logHeapUsage --watch --changed",
     "build": "swc src/index.ts -o dist/index.js && tsc --declaration --emitDeclarationOnly && git add .",
-    "deploy": "git push && git push --tags && npm publish",
+    "deploy": "git push && git push --tags && npm publish --access public",
     "patch": "npm run build && npm version patch --force -m 'Upgrade to %s' && npm run deploy",
     "minor": "npm run build && npm version minor --force -m 'Upgrade to %s' && npm run deploy",
     "major": "npm run build && npm version major --force -m 'Upgrade to %s' && npm run deploy"
